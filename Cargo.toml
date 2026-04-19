@@ -1,0 +1,15 @@
+[package]
+name = "uproxy"
+version = "0.1.0"
+edition = "2021"
+description = "Project-aware Unity launcher"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+
+[profile.release]
+lto = true
+strip = true
