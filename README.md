@@ -154,6 +154,3 @@ editor_root = "D:/Unity/Hub/Editor"
 - `urun` does **not** manage Unity licenses.
 - `urun` does **not** parse or validate Unity's own arguments.
 - `urun` does **not** manage multiple Hub install roots.
-
-See [`.claude/Architecture.md`](./.claude/Architecture.md) for the full
-design document.
