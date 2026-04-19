@@ -9,15 +9,15 @@ use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-uproxy — project-aware Unity launcher
+urun — project-aware Unity launcher
 
 USAGE:
-    uproxy <alias> [unity-args…]        launch Unity for a registered project
-    uproxy add <alias> <project-path>   register a project
-    uproxy remove <alias>               unregister a project
-    uproxy list                         list all registered projects
-    uproxy which <alias>                print resolved Unity.exe path
-    uproxy --version                    print uproxy version";
+    urun <alias> [unity-args…]        launch Unity for a registered project
+    urun add <alias> <project-path>   register a project
+    urun remove <alias>               unregister a project
+    urun list                         list all registered projects
+    urun which <alias>                print resolved Unity.exe path
+    urun --version                    print urun version";
 
 fn main() -> ExitCode {
     let mut args: Vec<OsString> = env::args_os().skip(1).collect();
@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     let first = args.remove(0);
     match first.to_str() {
         Some("--version") | Some("-V") => {
-            println!("uproxy {}", env!("CARGO_PKG_VERSION"));
+            println!("urun {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Some("--help") | Some("-h") | Some("help") => {
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
 
 fn cmd_add(args: &[OsString]) -> ExitCode {
     if args.len() != 2 {
-        eprintln!("usage: uproxy add <alias> <project-path>");
+        eprintln!("usage: urun add <alias> <project-path>");
         return ExitCode::from(2);
     }
     let alias = args[0].to_string_lossy();
@@ -62,7 +62,7 @@ fn cmd_add(args: &[OsString]) -> ExitCode {
 
 fn cmd_remove(args: &[OsString]) -> ExitCode {
     if args.len() != 1 {
-        eprintln!("usage: uproxy remove <alias>");
+        eprintln!("usage: urun remove <alias>");
         return ExitCode::from(2);
     }
     let alias = args[0].to_string_lossy();
@@ -74,7 +74,7 @@ fn cmd_remove(args: &[OsString]) -> ExitCode {
 
 fn cmd_list(args: &[OsString]) -> ExitCode {
     if !args.is_empty() {
-        eprintln!("usage: uproxy list");
+        eprintln!("usage: urun list");
         return ExitCode::from(2);
     }
     match registry::list() {
@@ -85,7 +85,7 @@ fn cmd_list(args: &[OsString]) -> ExitCode {
 
 fn cmd_which(args: &[OsString]) -> ExitCode {
     if args.len() != 1 {
-        eprintln!("usage: uproxy which <alias>");
+        eprintln!("usage: urun which <alias>");
         return ExitCode::from(2);
     }
     let alias = args[0].to_string_lossy();
@@ -107,12 +107,12 @@ fn cmd_launch(alias: &str, rest: &[OsString]) -> ExitCode {
 }
 
 fn fatal_code<E: Display>(e: E) -> ExitCode {
-    eprintln!("uproxy: {}", e);
+    eprintln!("urun: {}", e);
     ExitCode::from(1)
 }
 
 pub(crate) fn fatal<E: Display>(e: E) -> ! {
-    eprintln!("uproxy: {}", e);
+    eprintln!("urun: {}", e);
     std::process::exit(1);
 }
 

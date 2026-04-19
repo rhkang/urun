@@ -1,8 +1,8 @@
 [package]
-name = "uproxy"
+name = "urun"
 version = "0.1.0"
 edition = "2021"
-description = "Project-aware Unity launcher"
+description = "CLI shim that picks the right Unity editor for each project"
 license = "MIT"
 
 [dependencies]

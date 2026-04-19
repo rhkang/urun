@@ -82,7 +82,7 @@ pub fn list() -> Result<(), RegistryError> {
 }
 
 fn registry_path() -> PathBuf {
-    crate::config::uproxy_dir().join("projects.toml")
+    crate::config::urun_dir().join("projects.toml")
 }
 
 fn load() -> Result<Registry, RegistryError> {
@@ -95,7 +95,7 @@ fn load() -> Result<Registry, RegistryError> {
 }
 
 fn save(reg: &Registry) -> Result<(), RegistryError> {
-    let dir = crate::config::uproxy_dir();
+    let dir = crate::config::urun_dir();
     std::fs::create_dir_all(&dir)?;
     let body = toml::to_string_pretty(reg).map_err(|e| RegistryError::Parse(e.to_string()))?;
     std::fs::write(registry_path(), body)?;

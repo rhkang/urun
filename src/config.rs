@@ -23,14 +23,16 @@ pub fn load() -> Config {
     }
 }
 
-pub fn uproxy_dir() -> PathBuf {
+pub fn urun_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| crate::fatal("could not determine home directory"))
-        .join(".uproxy")
+        .join(".local")
+        .join("state")
+        .join("urun")
 }
 
 fn config_path() -> PathBuf {
-    uproxy_dir().join("config.toml")
+    urun_dir().join("config.toml")
 }
 
 fn platform_default() -> PathBuf {
