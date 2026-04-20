@@ -44,15 +44,17 @@ pub struct Resolved {
 }
 
 #[cfg(windows)]
-const UNITY_BIN: &str = "Unity.exe";
-#[cfg(not(windows))]
-const UNITY_BIN: &str = "Unity";
+const UNITY_REL: &str = "Editor/Unity.exe";
+#[cfg(target_os = "linux")]
+const UNITY_REL: &str = "Editor/Unity";
+#[cfg(target_os = "macos")]
+const UNITY_REL: &str = "Unity.app/Contents/MacOS/Unity";
 
 pub fn resolve(alias: &str) -> Result<Resolved, ResolveError> {
     let project = registry::lookup(alias)?;
     let version = read_project_version(&project)?;
     let root = config::load().editor_root();
-    let unity = root.join(&version).join("Editor").join(UNITY_BIN);
+    let unity = root.join(&version).join(UNITY_REL);
     if !unity.exists() {
         return Err(ResolveError::EditorNotFound { version, path: unity });
     }
