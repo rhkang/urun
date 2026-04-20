@@ -11,6 +11,9 @@ toml = "0.8"
 dirs = "5"
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [profile.release]
 lto = true
 strip = true

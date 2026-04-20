@@ -269,7 +269,15 @@ fn cmd_launch(alias: &str, rest: &[OsString]) -> ExitCode {
         Ok(r) => r,
         Err(e) => return fatal_code(e),
     };
-    exec(&resolved.unity, &resolved.project, rest)
+    if is_batchmode(rest) {
+        exec_attached(&resolved.unity, &resolved.project, rest)
+    } else {
+        spawn_detached(&resolved.unity, &resolved.project, rest)
+    }
+}
+
+fn is_batchmode(args: &[OsString]) -> bool {
+    args.iter().any(|a| a == "-batchmode")
 }
 
 fn fatal_code<E: Display>(e: E) -> ExitCode {
@@ -283,7 +291,7 @@ pub(crate) fn fatal<E: Display>(e: E) -> ! {
 }
 
 #[cfg(unix)]
-fn exec(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new(unity)
         .arg("-projectPath")
@@ -294,7 +302,7 @@ fn exec(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
 }
 
 #[cfg(windows)]
-fn exec(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
     let status = match std::process::Command::new(unity)
         .arg("-projectPath")
         .arg(project)
@@ -305,4 +313,53 @@ fn exec(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
         Err(e) => fatal(e),
     };
     std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(unix)]
+fn spawn_detached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+
+    let mut cmd = std::process::Command::new(unity);
+    cmd.arg("-projectPath")
+        .arg(project)
+        .args(rest)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    match cmd.spawn() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => fatal(e),
+    }
+}
+
+#[cfg(windows)]
+fn spawn_detached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    match std::process::Command::new(unity)
+        .arg("-projectPath")
+        .arg(project)
+        .args(rest)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .spawn()
+    {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => fatal(e),
+    }
 }
