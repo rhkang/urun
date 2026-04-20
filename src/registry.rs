@@ -81,6 +81,10 @@ pub fn list() -> Result<(), RegistryError> {
     Ok(())
 }
 
+pub fn load_projects() -> Result<BTreeMap<String, PathBuf>, RegistryError> {
+    Ok(load()?.projects)
+}
+
 fn registry_path() -> PathBuf {
     crate::config::urun_dir().join("projects.toml")
 }
