@@ -1,36 +1,14 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::config::{self, ConfigError};
+use crate::config::{self, ConfigError, Project};
 
 #[derive(Debug, Error)]
 pub enum RegistryError {
     #[error(transparent)]
     Config(#[from] ConfigError),
-    #[error("failed to read {}", .path.display())]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to write {}", .path.display())]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to parse {}", .path.display())]
-    Deserialize {
-        path: PathBuf,
-        #[source]
-        source: Box<toml::de::Error>,
-    },
-    #[error("failed to serialize registry")]
-    Serialize(#[source] Box<toml::ser::Error>),
     #[error("unknown alias: {0}")]
     UnknownAlias(String),
     #[error("alias already registered: {0}")]
@@ -41,17 +19,12 @@ pub enum RegistryError {
 
 pub type Result<T> = std::result::Result<T, RegistryError>;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct Registry {
-    #[serde(default)]
-    projects: BTreeMap<String, PathBuf>,
-}
-
 pub fn lookup(alias: &str) -> Result<PathBuf> {
-    load()?
+    config::load()?
         .projects
-        .get(alias)
-        .cloned()
+        .into_iter()
+        .find(|p| p.alias == alias)
+        .map(|p| p.path)
         .ok_or_else(|| RegistryError::UnknownAlias(alias.to_string()))
 }
 
@@ -61,65 +34,49 @@ pub fn add(alias: &str, path: &Path) -> Result<()> {
         return Err(RegistryError::ProjectPathNotDirectory(abs));
     }
 
-    let mut reg = load()?;
-    if reg.projects.contains_key(alias) {
+    let mut cfg = config::load()?;
+    if cfg.projects.iter().any(|p| p.alias == alias) {
         return Err(RegistryError::AliasExists(alias.to_string()));
     }
-    reg.projects.insert(alias.to_string(), abs);
-    save(&reg)
+    cfg.projects.push(Project {
+        alias: alias.to_string(),
+        path: abs,
+    });
+    config::save(&cfg)?;
+    Ok(())
 }
 
 pub fn remove(alias: &str) -> Result<()> {
-    let mut reg = load()?;
-    if reg.projects.remove(alias).is_none() {
+    let mut cfg = config::load()?;
+    let before = cfg.projects.len();
+    cfg.projects.retain(|p| p.alias != alias);
+    if cfg.projects.len() == before {
         return Err(RegistryError::UnknownAlias(alias.to_string()));
     }
-    save(&reg)
+    config::save(&cfg)?;
+    Ok(())
 }
 
 pub fn list() -> Result<()> {
-    let reg = load()?;
-    if reg.projects.is_empty() {
+    let cfg = config::load()?;
+    if cfg.projects.is_empty() {
         println!("(no projects registered)");
         return Ok(());
     }
-    let width = reg.projects.keys().map(String::len).max().unwrap_or(0);
-    for (alias, path) in &reg.projects {
-        println!("{:<width$}  {}", alias, path.display(), width = width);
+    let width = cfg
+        .projects
+        .iter()
+        .map(|p| p.alias.len())
+        .max()
+        .unwrap_or(0);
+    for p in &cfg.projects {
+        println!("{:<width$}  {}", p.alias, p.path.display(), width = width);
     }
     Ok(())
 }
 
-pub fn load_projects() -> Result<BTreeMap<String, PathBuf>> {
-    Ok(load()?.projects)
-}
-
-fn registry_path() -> Result<PathBuf> {
-    Ok(config::urun_dir()?.join("projects.toml"))
-}
-
-fn load() -> Result<Registry> {
-    let path = registry_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(s) => toml::from_str(&s).map_err(|e| RegistryError::Deserialize {
-            path,
-            source: Box::new(e),
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Registry::default()),
-        Err(source) => Err(RegistryError::Read { path, source }),
-    }
-}
-
-fn save(reg: &Registry) -> Result<()> {
-    let dir = config::urun_dir()?;
-    std::fs::create_dir_all(&dir).map_err(|source| RegistryError::Write {
-        path: dir.clone(),
-        source,
-    })?;
-    let body = toml::to_string_pretty(reg).map_err(|e| RegistryError::Serialize(Box::new(e)))?;
-    let path = registry_path()?;
-    std::fs::write(&path, body).map_err(|source| RegistryError::Write { path, source })?;
-    Ok(())
+pub fn load_projects() -> Result<Vec<Project>> {
+    Ok(config::load()?.projects)
 }
 
 fn absolutize(path: &Path) -> PathBuf {
@@ -129,28 +86,5 @@ fn absolutize(path: &Path) -> PathBuf {
         env::current_dir()
             .map(|cwd| cwd.join(path))
             .unwrap_or_else(|_| path.to_path_buf())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_serialize() {
-        let reg = Registry {
-            projects: BTreeMap::from([
-                ("foo".to_string(), PathBuf::from("/path/to/foo")),
-                ("bar".to_string(), PathBuf::from("/path/to/bar")),
-            ]),
-        };
-        let s = toml::to_string_pretty(&reg).unwrap();
-        assert_eq!(
-            s,
-            r#"projects = { bar = "/path/to/bar", foo = "/path/to/foo" }"#
-        );
-
-        let deserialized = toml::from_str::<Registry>(&s).unwrap();
-        assert_eq!(reg.projects, deserialized.projects);
     }
 }

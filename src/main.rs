@@ -115,8 +115,8 @@ fn cmd_ps() -> ExitCode {
         .map(|r| match &r.project {
             Some(p) => projects
                 .iter()
-                .find(|(_, pp)| processes::path_matches(p, pp))
-                .map(|(a, _)| a.len())
+                .find(|pr| processes::path_matches(p, &pr.path))
+                .map(|pr| pr.alias.len())
                 .unwrap_or(1),
             None => 1,
         })
@@ -127,8 +127,8 @@ fn cmd_ps() -> ExitCode {
         let alias = match &r.project {
             Some(p) => projects
                 .iter()
-                .find(|(_, pp)| processes::path_matches(p, pp))
-                .map(|(a, _)| a.as_str()),
+                .find(|pr| processes::path_matches(p, &pr.path))
+                .map(|pr| pr.alias.as_str()),
             None => None,
         };
         let project_str = r
@@ -197,8 +197,8 @@ fn cmd_kill_all() -> ExitCode {
             .and_then(|p| {
                 projects
                     .iter()
-                    .find(|(_, pp)| processes::path_matches(p, pp.as_path()))
-                    .map(|(a, _)| a.as_str())
+                    .find(|pr| processes::path_matches(p, &pr.path))
+                    .map(|pr| pr.alias.as_str())
             })
             .unwrap_or("-");
         let path_str = r
