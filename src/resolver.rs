@@ -32,12 +32,21 @@ pub struct Resolved {
     pub project: PathBuf,
 }
 
-#[cfg(windows)]
-const UNITY_REL: &str = "Editor/Unity.exe";
-#[cfg(target_os = "linux")]
-const UNITY_REL: &str = "Editor/Unity";
-#[cfg(target_os = "macos")]
-const UNITY_REL: &str = "Unity.app/Contents/MacOS/Unity";
+cfg_select! {
+    windows => {
+        const UNITY_REL: &str = "Editor/Unity.exe";
+    }
+
+    target_os = "linux" => {
+        const UNITY_REL: &str = "Editor/Unity";
+    }
+
+    target_os = "macos" => {
+        const UNITY_REL: &str = "Unity.app/Contents/MacOS/Unity";
+    }
+
+    _ => compile_error!{ "Not supported platform" },
+}
 
 pub fn resolve(alias: &str) -> Result<Resolved> {
     let project = registry::lookup(alias)?;
