@@ -52,8 +52,8 @@ or second-guesses Unity's arguments.
 - **Run the same automation across multiple projects** on different Unity
   versions. No per-project shell wrappers.
 - **Maintain build scripts shared across machines** where Unity lives in
-  different locations. `~/.local/state/urun/config.toml` is the only per-machine
-  knob.
+  different locations. A single per-machine config file (see [Config](#config))
+  is the only knob.
 - **Onboard new engineers** to an existing automation setup — `urun add
   <alias> <path>` once, then every script in the repo Just Works.
 - **Recover a hung or crashed editor** without hunting through Task Manager.
@@ -112,7 +112,7 @@ Everything after `<alias>` is passed straight to `Unity.exe`, preceded by
 
 When `urun <alias> [args…]` runs:
 
-1. Look up `<alias>` in `~/.local/state/urun/projects.toml` → project path.
+1. Look up `<alias>` in the config file (see [Config](#config)) → project path.
 2. Read version from `<project>/ProjectSettings/ProjectVersion.txt`.
 3. Resolve editor root (config override, else platform default).
 4. `exec` `<editor-root>/<version>/Editor/Unity.exe -projectPath <project> [args…]`.
@@ -122,27 +122,33 @@ fail loudly **before** any process is spawned.
 
 ## Config
 
-Everything lives under `~/.local/state/urun/`:
+A single file at a platform-appropriate location, resolved via
+[`dirs::config_local_dir()`](https://docs.rs/dirs/latest/dirs/fn.config_local_dir.html):
 
-```
-~/.local/state/urun/
-├── config.toml      # optional — editor_root override
-└── projects.toml    # alias → project path registry
-```
+| Platform | Path |
+|----------|------|
+| Linux    | `$XDG_CONFIG_HOME/urun/config.toml` (default `~/.config/urun/config.toml`) |
+| macOS    | `~/Library/Application Support/urun/config.toml` |
+| Windows  | `%LOCALAPPDATA%\urun\config.toml` (default `C:\Users\<you>\AppData\Local\urun\config.toml`) |
 
-`projects.toml` (managed by `urun add` / `remove`):
-
-```toml
-[projects]
-mygame   = "D:/Projects/MyGame"
-client-a = "C:/Work/ClientA"
-tools    = "/home/dev/UnityTools"
-```
-
-`config.toml` (only if your Unity install isn't in the platform default):
+Both `editor_root` (optional) and the alias list live in this one file.
+`urun add` / `urun remove` preserve insertion order — entries appear in the
+order you registered them:
 
 ```toml
-editor_root = "D:/Unity/Hub/Editor"
+editor_root = "D:/Unity/Hub/Editor"  # optional — only if the platform default doesn't match
+
+[[projects]]
+alias = "mygame"
+path = "D:/Projects/MyGame"
+
+[[projects]]
+alias = "client-a"
+path = "C:/Work/ClientA"
+
+[[projects]]
+alias = "tools"
+path = "/home/dev/UnityTools"
 ```
 
 ### Platform default editor roots
