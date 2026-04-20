@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
+use colored::Colorize;
 use eyre::Report;
 
 #[derive(Parser)]
@@ -26,7 +27,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// register a project
-    Add { alias: String, project_path: PathBuf },
+    Add {
+        alias: String,
+        project_path: PathBuf,
+    },
 
     /// unregister a project
     Remove { alias: String },
@@ -104,12 +108,6 @@ fn cmd_ps() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    use std::io::IsTerminal;
-    let tty = std::io::stdout().is_terminal();
-    let bold = if tty { "\x1b[1;32m" } else { "" };
-    let dim = if tty { "\x1b[2m" } else { "" };
-    let reset = if tty { "\x1b[0m" } else { "" };
-
     let alias_width = running
         .iter()
         .map(|r| match &r.project {
@@ -137,20 +135,26 @@ fn cmd_ps() -> ExitCode {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "(no -projectPath)".to_string());
         match alias {
-            Some(a) => println!(
-                "{bold}* {:<width$}  pid {:<6}  {}{reset}",
-                a,
-                r.pid,
-                project_str,
-                width = alias_width,
-            ),
-            None => println!(
-                "{dim}  {:<width$}  pid {:<6}  {}{reset}",
-                "-",
-                r.pid,
-                project_str,
-                width = alias_width,
-            ),
+            Some(a) => {
+                let line = format!(
+                    "* {:<width$}  pid {:<6}  {}",
+                    a,
+                    r.pid,
+                    project_str,
+                    width = alias_width,
+                );
+                println!("{}", line.bold().green());
+            }
+            None => {
+                let line = format!(
+                    "  {:<width$}  pid {:<6}  {}",
+                    "-",
+                    r.pid,
+                    project_str,
+                    width = alias_width,
+                );
+                println!("{}", line.dimmed());
+            }
         }
     }
     ExitCode::SUCCESS
