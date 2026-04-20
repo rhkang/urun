@@ -170,9 +170,14 @@ editor_root = "D:/Unity/Hub/Editor"
 
 ## Behaviour notes
 
-- On Unix, `urun` `execv()`s Unity — Unity replaces the `urun` process.
-  No wrapper PID, no signal forwarding layer.
-- On Windows, `urun` spawns Unity, waits, and forwards the exit code.
+- **Interactive launch** (no `-batchmode`): `urun` spawns Unity detached
+  from the terminal (new session / detached process) and returns
+  immediately. Close the shell or hit Ctrl+C — the editor keeps running.
+- **Headless launch** (`-batchmode` in args): `urun` stays attached so
+  exit codes, stdout/stderr, and Ctrl+C propagate to Unity. On Unix this
+  is an `execv()` — Unity replaces the `urun` process, no wrapper PID.
+  On Windows `urun` spawns Unity, waits, and forwards the exit code.
+  This is what CI pipelines want.
 - `urun` will not launch if the resolved `Unity.exe` doesn't exist. It
   tells you the exact path it expected so you know which editor version
   to install.
