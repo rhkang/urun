@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-urun — project-aware Unity launcher
+urun — CLI shim that picks the right Unity editor for each project
 
 USAGE:
     urun <alias> [unity-args…]        launch Unity for a registered project
