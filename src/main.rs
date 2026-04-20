@@ -3,99 +3,100 @@ mod processes;
 mod registry;
 mod resolver;
 
-use std::env;
-use std::ffi::OsString;
-use std::fmt::Display;
-use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "\
-urun — CLI shim that picks the right Unity editor for each project
+use clap::{CommandFactory, Parser, Subcommand};
+use colored::Colorize;
+use eyre::Report;
 
-USAGE:
-    urun <alias> [unity-args…]        launch Unity for a registered project
-    urun add <alias> <project-path>   register a project
-    urun remove <alias>               unregister a project
-    urun list | ls                    list all registered projects
-    urun which <alias>                print resolved Unity.exe path
-    urun ps                           list running Unity editors (alias mapped)
-    urun kill | k <alias>             kill running Unity for <alias>
-    urun kill-all | ka                kill all running Unity editors (asks y/n)
-    urun --version                    print urun version";
+#[derive(Parser)]
+#[command(
+    name = "urun",
+    version,
+    about = "CLI shim that picks the right Unity editor for each project",
+    long_about = "Run `urun <alias> [unity-args…]` to launch Unity for a registered project.",
+    arg_required_else_help = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// register a project
+    Add {
+        alias: String,
+        project_path: PathBuf,
+    },
+
+    /// unregister a project
+    Remove { alias: String },
+
+    /// list all registered projects
+    #[command(alias = "ls")]
+    List,
+
+    /// print resolved Unity path
+    Which { alias: String },
+
+    /// list running Unity editors (alias mapped)
+    Ps,
+
+    /// kill running Unity for <alias>
+    #[command(alias = "k")]
+    Kill { alias: String },
+
+    /// kill all running Unity editors (asks y/n)
+    #[command(alias = "ka")]
+    KillAll,
+
+    /// launch Unity for a registered project (default: `urun <alias> [unity-args…]`)
+    #[command(external_subcommand)]
+    Launch(Vec<String>),
+}
 
 fn main() -> ExitCode {
-    let mut args: Vec<OsString> = env::args_os().skip(1).collect();
-    if args.is_empty() {
-        eprintln!("{}", USAGE);
-        return ExitCode::from(2);
-    }
-
-    let first = args.remove(0);
-    match first.to_str() {
-        Some("--version") | Some("-V") => {
-            println!("urun {}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let _ = e.print();
+            return ExitCode::from(if e.use_stderr() { 2 } else { 0 });
         }
-        Some("--help") | Some("-h") | Some("help") => {
-            println!("{}", USAGE);
-            ExitCode::SUCCESS
-        }
-        Some("add") => cmd_add(&args),
-        Some("remove") => cmd_remove(&args),
-        Some("list") | Some("ls") => cmd_list(&args),
-        Some("which") => cmd_which(&args),
-        Some("ps") => cmd_ps(&args),
-        Some("kill") | Some("k") => cmd_kill(&args),
-        Some("kill-all") | Some("ka") => cmd_kill_all(&args),
-        _ => {
-            let alias = first.to_string_lossy().into_owned();
-            cmd_launch(&alias, &args)
-        }
+    };
+
+    match cli.cmd {
+        Cmd::Add {
+            alias,
+            project_path,
+        } => match registry::add(&alias, &project_path) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => fatal_code(e),
+        },
+        Cmd::Remove { alias } => match registry::remove(&alias) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => fatal_code(e),
+        },
+        Cmd::List => match registry::list() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => fatal_code(e),
+        },
+        Cmd::Which { alias } => cmd_which(&alias),
+        Cmd::Ps => cmd_ps(),
+        Cmd::Kill { alias } => cmd_kill(&alias),
+        Cmd::KillAll => cmd_kill_all(),
+        Cmd::Launch(args) => match args.split_first() {
+            Some((alias, rest)) => cmd_launch(alias, rest),
+            None => {
+                Cli::command().print_help().ok();
+                ExitCode::from(2)
+            }
+        },
     }
 }
 
-fn cmd_add(args: &[OsString]) -> ExitCode {
-    if args.len() != 2 {
-        eprintln!("usage: urun add <alias> <project-path>");
-        return ExitCode::from(2);
-    }
-    let alias = args[0].to_string_lossy();
-    let path = Path::new(&args[1]);
-    match registry::add(&alias, path) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fatal_code(e),
-    }
-}
-
-fn cmd_remove(args: &[OsString]) -> ExitCode {
-    if args.len() != 1 {
-        eprintln!("usage: urun remove <alias>");
-        return ExitCode::from(2);
-    }
-    let alias = args[0].to_string_lossy();
-    match registry::remove(&alias) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fatal_code(e),
-    }
-}
-
-fn cmd_list(args: &[OsString]) -> ExitCode {
-    if !args.is_empty() {
-        eprintln!("usage: urun list");
-        return ExitCode::from(2);
-    }
-    match registry::list() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fatal_code(e),
-    }
-}
-
-fn cmd_ps(args: &[OsString]) -> ExitCode {
-    if !args.is_empty() {
-        eprintln!("usage: urun ps");
-        return ExitCode::from(2);
-    }
+fn cmd_ps() -> ExitCode {
     let projects = match registry::load_projects() {
         Ok(p) => p,
         Err(e) => return fatal_code(e),
@@ -106,19 +107,13 @@ fn cmd_ps(args: &[OsString]) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    use std::io::IsTerminal;
-    let tty = std::io::stdout().is_terminal();
-    let bold = if tty { "\x1b[1;32m" } else { "" };
-    let dim = if tty { "\x1b[2m" } else { "" };
-    let reset = if tty { "\x1b[0m" } else { "" };
-
     let alias_width = running
         .iter()
         .map(|r| match &r.project {
             Some(p) => projects
                 .iter()
-                .find(|(_, pp)| processes::path_matches(p, pp))
-                .map(|(a, _)| a.len())
+                .find(|pr| processes::path_matches(p, &pr.path))
+                .map(|pr| pr.alias.len())
                 .unwrap_or(1),
             None => 1,
         })
@@ -129,8 +124,8 @@ fn cmd_ps(args: &[OsString]) -> ExitCode {
         let alias = match &r.project {
             Some(p) => projects
                 .iter()
-                .find(|(_, pp)| processes::path_matches(p, pp))
-                .map(|(a, _)| a.as_str()),
+                .find(|pr| processes::path_matches(p, &pr.path))
+                .map(|pr| pr.alias.as_str()),
             None => None,
         };
         let project_str = r
@@ -139,39 +134,40 @@ fn cmd_ps(args: &[OsString]) -> ExitCode {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "(no -projectPath)".to_string());
         match alias {
-            Some(a) => println!(
-                "{bold}* {:<width$}  pid {:<6}  {}{reset}",
-                a,
-                r.pid,
-                project_str,
-                width = alias_width,
-            ),
-            None => println!(
-                "{dim}  {:<width$}  pid {:<6}  {}{reset}",
-                "-",
-                r.pid,
-                project_str,
-                width = alias_width,
-            ),
+            Some(a) => {
+                let line = format!(
+                    "* {:<width$}  pid {:<6}  {}",
+                    a,
+                    r.pid,
+                    project_str,
+                    width = alias_width,
+                );
+                println!("{}", line.bold().green());
+            }
+            None => {
+                let line = format!(
+                    "  {:<width$}  pid {:<6}  {}",
+                    "-",
+                    r.pid,
+                    project_str,
+                    width = alias_width,
+                );
+                println!("{}", line.dimmed());
+            }
         }
     }
     ExitCode::SUCCESS
 }
 
-fn cmd_kill(args: &[OsString]) -> ExitCode {
-    if args.len() != 1 {
-        eprintln!("usage: urun kill <alias>");
-        return ExitCode::from(2);
-    }
-    let alias = args[0].to_string_lossy();
-    let project = match registry::lookup(&alias) {
+fn cmd_kill(alias: &str) -> ExitCode {
+    let project = match registry::lookup(alias) {
         Ok(p) => p,
         Err(e) => return fatal_code(e),
     };
     let target = processes::running().into_iter().find(|r| {
         r.project
             .as_deref()
-            .map_or(false, |p| processes::path_matches(p, &project))
+            .is_some_and(|p| processes::path_matches(p, &project))
     });
     match target {
         Some(r) => match processes::kill_pid(r.pid) {
@@ -188,11 +184,7 @@ fn cmd_kill(args: &[OsString]) -> ExitCode {
     }
 }
 
-fn cmd_kill_all(args: &[OsString]) -> ExitCode {
-    if !args.is_empty() {
-        eprintln!("usage: urun kill-all");
-        return ExitCode::from(2);
-    }
+fn cmd_kill_all() -> ExitCode {
     let running = processes::running();
     if running.is_empty() {
         println!("(no Unity processes running)");
@@ -208,8 +200,8 @@ fn cmd_kill_all(args: &[OsString]) -> ExitCode {
             .and_then(|p| {
                 projects
                     .iter()
-                    .find(|(_, pp)| processes::path_matches(p, pp.as_path()))
-                    .map(|(a, _)| a.as_str())
+                    .find(|pr| processes::path_matches(p, &pr.path))
+                    .map(|pr| pr.alias.as_str())
             })
             .unwrap_or("-");
         let path_str = r
@@ -219,16 +211,16 @@ fn cmd_kill_all(args: &[OsString]) -> ExitCode {
             .unwrap_or_else(|| "(no -projectPath)".to_string());
         println!("  {:<12} pid {:<6}  {}", alias, r.pid, path_str);
     }
-    print!("kill all? [y/N] ");
-    if std::io::stdout().flush().is_err() {
-        return ExitCode::from(1);
-    }
-    let mut input = String::new();
-    if std::io::stdin().read_line(&mut input).is_err() {
-        return ExitCode::from(1);
-    }
-    let ans = input.trim();
-    if !matches!(ans, "y" | "Y" | "yes" | "YES") {
+    let confirmed = match inquire::Confirm::new("kill all?")
+        .with_default(false)
+        .prompt()
+    {
+        Ok(v) => v,
+        Err(inquire::InquireError::OperationCanceled)
+        | Err(inquire::InquireError::OperationInterrupted) => false,
+        Err(e) => return fatal_code(eyre::eyre!(e)),
+    };
+    if !confirmed {
         println!("aborted");
         return ExitCode::SUCCESS;
     }
@@ -249,13 +241,8 @@ fn cmd_kill_all(args: &[OsString]) -> ExitCode {
     }
 }
 
-fn cmd_which(args: &[OsString]) -> ExitCode {
-    if args.len() != 1 {
-        eprintln!("usage: urun which <alias>");
-        return ExitCode::from(2);
-    }
-    let alias = args[0].to_string_lossy();
-    match resolver::resolve(&alias) {
+fn cmd_which(alias: &str) -> ExitCode {
+    match resolver::resolve(alias) {
         Ok(r) => {
             println!("{}", r.unity.display());
             ExitCode::SUCCESS
@@ -264,7 +251,7 @@ fn cmd_which(args: &[OsString]) -> ExitCode {
     }
 }
 
-fn cmd_launch(alias: &str, rest: &[OsString]) -> ExitCode {
+fn cmd_launch(alias: &str, rest: &[String]) -> ExitCode {
     let resolved = match resolver::resolve(alias) {
         Ok(r) => r,
         Err(e) => return fatal_code(e),
@@ -276,22 +263,35 @@ fn cmd_launch(alias: &str, rest: &[OsString]) -> ExitCode {
     }
 }
 
-fn is_batchmode(args: &[OsString]) -> bool {
+fn is_batchmode(args: &[String]) -> bool {
     args.iter().any(|a| a == "-batchmode")
 }
 
-fn fatal_code<E: Display>(e: E) -> ExitCode {
-    eprintln!("urun: {}", e);
+fn fatal_code<E>(e: E) -> ExitCode
+where
+    E: Into<Report>,
+{
+    print_report(e.into());
     ExitCode::from(1)
 }
 
-pub(crate) fn fatal<E: Display>(e: E) -> ! {
-    eprintln!("urun: {}", e);
+pub(crate) fn fatal<E>(e: E) -> !
+where
+    E: Into<Report>,
+{
+    print_report(e.into());
     std::process::exit(1);
 }
 
+fn print_report(report: Report) {
+    eprintln!("urun: {}", report);
+    for cause in report.chain().skip(1) {
+        eprintln!("  caused by: {}", cause);
+    }
+}
+
 #[cfg(unix)]
-fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn exec_attached(unity: &Path, project: &Path, rest: &[String]) -> ExitCode {
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new(unity)
         .arg("-projectPath")
@@ -302,7 +302,7 @@ fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
 }
 
 #[cfg(windows)]
-fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn exec_attached(unity: &Path, project: &Path, rest: &[String]) -> ExitCode {
     let status = match std::process::Command::new(unity)
         .arg("-projectPath")
         .arg(project)
@@ -316,7 +316,7 @@ fn exec_attached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
 }
 
 #[cfg(unix)]
-fn spawn_detached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn spawn_detached(unity: &Path, project: &Path, rest: &[String]) -> ExitCode {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 
@@ -342,7 +342,7 @@ fn spawn_detached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
 }
 
 #[cfg(windows)]
-fn spawn_detached(unity: &Path, project: &Path, rest: &[OsString]) -> ExitCode {
+fn spawn_detached(unity: &Path, project: &Path, rest: &[String]) -> ExitCode {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
 

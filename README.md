@@ -85,25 +85,10 @@ to kill. Rows with a matching alias are highlighted.
 
 ## Install
 
-Requires [Rust / `cargo`](https://rustup.rs). The bundled scripts build in
-release mode and drop the binary into `~/.local/bin`:
+Requires [Rust / `cargo`](https://rustup.rs).
 
 ```sh
-# Linux / macOS
-./install.sh
-
-# Windows (PowerShell)
-.\install.ps1
-```
-
-If `~/.local/bin` isn't on your `PATH`, the script will tell you exactly
-how to add it.
-
-Or build manually:
-
-```sh
-cargo build --release
-# copy target/release/urun (.exe on Windows) wherever you like
+cargo install --path .
 ```
 
 ## CLI

@@ -1,109 +1,82 @@
-use std::collections::BTreeMap;
 use std::env;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-#[derive(Debug)]
+use crate::config::{self, ConfigError, Project};
+
+#[derive(Debug, Error)]
 pub enum RegistryError {
-    Io(std::io::Error),
-    Parse(String),
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+    #[error("unknown alias: {0}")]
     UnknownAlias(String),
+    #[error("alias already registered: {0}")]
     AliasExists(String),
-    NotADirectory(PathBuf),
+    #[error("not a directory: {}", .0.display())]
+    ProjectPathNotDirectory(PathBuf),
 }
 
-impl fmt::Display for RegistryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RegistryError::Io(e) => write!(f, "registry I/O error: {}", e),
-            RegistryError::Parse(e) => write!(f, "registry parse error: {}", e),
-            RegistryError::UnknownAlias(a) => write!(f, "unknown alias: {}", a),
-            RegistryError::AliasExists(a) => write!(f, "alias already registered: {}", a),
-            RegistryError::NotADirectory(p) => write!(f, "not a directory: {}", p.display()),
-        }
-    }
-}
+pub type Result<T> = std::result::Result<T, RegistryError>;
 
-impl From<std::io::Error> for RegistryError {
-    fn from(e: std::io::Error) -> Self {
-        RegistryError::Io(e)
-    }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct Registry {
-    #[serde(default)]
-    projects: BTreeMap<String, PathBuf>,
-}
-
-pub fn lookup(alias: &str) -> Result<PathBuf, RegistryError> {
-    load()?
+pub fn lookup(alias: &str) -> Result<PathBuf> {
+    config::load()?
         .projects
-        .get(alias)
-        .cloned()
+        .into_iter()
+        .find(|p| p.alias == alias)
+        .map(|p| p.path)
         .ok_or_else(|| RegistryError::UnknownAlias(alias.to_string()))
 }
 
-pub fn add(alias: &str, path: &Path) -> Result<(), RegistryError> {
+pub fn add(alias: &str, path: &Path) -> Result<()> {
     let abs = absolutize(path);
     if !abs.is_dir() {
-        return Err(RegistryError::NotADirectory(abs));
+        return Err(RegistryError::ProjectPathNotDirectory(abs));
     }
 
-    let mut reg = load()?;
-    if reg.projects.contains_key(alias) {
+    let mut cfg = config::load()?;
+    if cfg.projects.iter().any(|p| p.alias == alias) {
         return Err(RegistryError::AliasExists(alias.to_string()));
     }
-    reg.projects.insert(alias.to_string(), abs);
-    save(&reg)
+    cfg.projects.push(Project {
+        alias: alias.to_string(),
+        path: abs,
+    });
+    config::save(&cfg)?;
+    Ok(())
 }
 
-pub fn remove(alias: &str) -> Result<(), RegistryError> {
-    let mut reg = load()?;
-    if reg.projects.remove(alias).is_none() {
+pub fn remove(alias: &str) -> Result<()> {
+    let mut cfg = config::load()?;
+    let before = cfg.projects.len();
+    cfg.projects.retain(|p| p.alias != alias);
+    if cfg.projects.len() == before {
         return Err(RegistryError::UnknownAlias(alias.to_string()));
     }
-    save(&reg)
+    config::save(&cfg)?;
+    Ok(())
 }
 
-pub fn list() -> Result<(), RegistryError> {
-    let reg = load()?;
-    if reg.projects.is_empty() {
+pub fn list() -> Result<()> {
+    let cfg = config::load()?;
+    if cfg.projects.is_empty() {
         println!("(no projects registered)");
         return Ok(());
     }
-    let width = reg.projects.keys().map(String::len).max().unwrap_or(0);
-    for (alias, path) in &reg.projects {
-        println!("{:<width$}  {}", alias, path.display(), width = width);
+    let width = cfg
+        .projects
+        .iter()
+        .map(|p| p.alias.len())
+        .max()
+        .unwrap_or(0);
+    for p in &cfg.projects {
+        println!("{:<width$}  {}", p.alias, p.path.display(), width = width);
     }
     Ok(())
 }
 
-pub fn load_projects() -> Result<BTreeMap<String, PathBuf>, RegistryError> {
-    Ok(load()?.projects)
-}
-
-fn registry_path() -> PathBuf {
-    crate::config::urun_dir().join("projects.toml")
-}
-
-fn load() -> Result<Registry, RegistryError> {
-    let path = registry_path();
-    match std::fs::read_to_string(&path) {
-        Ok(s) => toml::from_str(&s).map_err(|e| RegistryError::Parse(e.to_string())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Registry::default()),
-        Err(e) => Err(RegistryError::Io(e)),
-    }
-}
-
-fn save(reg: &Registry) -> Result<(), RegistryError> {
-    let dir = crate::config::urun_dir();
-    std::fs::create_dir_all(&dir)?;
-    let body = toml::to_string_pretty(reg).map_err(|e| RegistryError::Parse(e.to_string()))?;
-    std::fs::write(registry_path(), body)?;
-    Ok(())
+pub fn load_projects() -> Result<Vec<Project>> {
+    Ok(config::load()?.projects)
 }
 
 fn absolutize(path: &Path) -> PathBuf {

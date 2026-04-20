@@ -2,6 +2,17 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ProcessError {
+    #[error("no process with pid {0}")]
+    NotFound(u32),
+    #[error("failed to kill pid {0}")]
+    KillFailed(u32),
+}
+
+pub type Result<T> = std::result::Result<T, ProcessError>;
 
 pub struct RunningUnity {
     pub pid: u32,
@@ -35,7 +46,7 @@ pub fn running() -> Vec<RunningUnity> {
     out
 }
 
-pub fn kill_pid(pid: u32) -> Result<(), String> {
+pub fn kill_pid(pid: u32) -> Result<()> {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
     match sys.process(Pid::from_u32(pid)) {
@@ -43,10 +54,10 @@ pub fn kill_pid(pid: u32) -> Result<(), String> {
             if p.kill() {
                 Ok(())
             } else {
-                Err(format!("failed to kill pid {}", pid))
+                Err(ProcessError::KillFailed(pid))
             }
         }
-        None => Err(format!("no process with pid {}", pid)),
+        None => Err(ProcessError::NotFound(pid)),
     }
 }
 
