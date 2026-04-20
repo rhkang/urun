@@ -56,6 +56,32 @@ or second-guesses Unity's arguments.
   knob.
 - **Onboard new engineers** to an existing automation setup — `urun add
   <alias> <path>` once, then every script in the repo Just Works.
+- **Recover a hung or crashed editor** without hunting through Task Manager.
+  Unity occasionally deadlocks on import, wedges on a domain reload, or
+  leaves a zombie after a crash — `urun ps` shows every live editor mapped
+  back to the alias it's running, and `urun kill <alias>` takes out *that*
+  project's editor (not a random `Unity.exe` you hoped was the right one).
+
+## Spotting and killing stuck editors
+
+Unity hangs. It's a fact of life. `urun` keeps a direct link between your
+alias and the running editor process, so recovery is one command:
+
+```sh
+$ urun ps
+* mygame    pid 14820   D:\Projects\MyGame
+* client-a  pid 22104   C:\Work\ClientA
+  -         pid 31552   E:\Scratch\Prototype     # running, not registered
+
+$ urun kill mygame            # or: urun k mygame
+killed mygame (pid 14820)
+
+$ urun kill-all               # or: urun ka — asks y/N first
+```
+
+`ps` matches each running `Unity` / `Unity.exe` to a registered alias by
+its `-projectPath` argument, so you always know which editor you're about
+to kill. Rows with a matching alias are highlighted.
 
 ## Install
 
@@ -86,8 +112,11 @@ cargo build --release
 urun <alias> [unity-args…]        launch Unity for a registered project
 urun add <alias> <project-path>   register a project
 urun remove <alias>               unregister a project
-urun list                         list all registered projects
+urun list | ls                    list all registered projects
 urun which <alias>                print resolved Unity.exe path, do not exec
+urun ps                           list running Unity editors, mapped to aliases
+urun kill | k <alias>             kill the Unity editor running <alias>
+urun kill-all | ka                kill every running Unity editor (asks y/N)
 urun --version                    print urun version
 ```
 
