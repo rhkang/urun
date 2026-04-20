@@ -3,7 +3,6 @@ mod processes;
 mod registry;
 mod resolver;
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -212,16 +211,16 @@ fn cmd_kill_all() -> ExitCode {
             .unwrap_or_else(|| "(no -projectPath)".to_string());
         println!("  {:<12} pid {:<6}  {}", alias, r.pid, path_str);
     }
-    print!("kill all? [y/N] ");
-    if std::io::stdout().flush().is_err() {
-        return ExitCode::from(1);
-    }
-    let mut input = String::new();
-    if std::io::stdin().read_line(&mut input).is_err() {
-        return ExitCode::from(1);
-    }
-    let ans = input.trim();
-    if !matches!(ans, "y" | "Y" | "yes" | "YES") {
+    let confirmed = match inquire::Confirm::new("kill all?")
+        .with_default(false)
+        .prompt()
+    {
+        Ok(v) => v,
+        Err(inquire::InquireError::OperationCanceled)
+        | Err(inquire::InquireError::OperationInterrupted) => false,
+        Err(e) => return fatal_code(eyre::eyre!(e)),
+    };
+    if !confirmed {
         println!("aborted");
         return ExitCode::SUCCESS;
     }
