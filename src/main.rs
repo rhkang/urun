@@ -5,10 +5,11 @@ mod resolver;
 
 use std::env;
 use std::ffi::OsString;
-use std::fmt::Display;
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
+
+use eyre::Report;
 
 const USAGE: &str = "\
 urun — CLI shim that picks the right Unity editor for each project
@@ -23,6 +24,8 @@ USAGE:
     urun kill | k <alias>             kill running Unity for <alias>
     urun kill-all | ka                kill all running Unity editors (asks y/n)
     urun --version                    print urun version";
+
+// can use clap
 
 fn main() -> ExitCode {
     let mut args: Vec<OsString> = env::args_os().skip(1).collect();
@@ -280,14 +283,27 @@ fn is_batchmode(args: &[OsString]) -> bool {
     args.iter().any(|a| a == "-batchmode")
 }
 
-fn fatal_code<E: Display>(e: E) -> ExitCode {
-    eprintln!("urun: {}", e);
+fn fatal_code<E>(e: E) -> ExitCode
+where
+    E: Into<Report>,
+{
+    print_report(e.into());
     ExitCode::from(1)
 }
 
-pub(crate) fn fatal<E: Display>(e: E) -> ! {
-    eprintln!("urun: {}", e);
+pub(crate) fn fatal<E>(e: E) -> !
+where
+    E: Into<Report>,
+{
+    print_report(e.into());
     std::process::exit(1);
+}
+
+fn print_report(report: Report) {
+    eprintln!("urun: {}", report);
+    for cause in report.chain().skip(1) {
+        eprintln!("  caused by: {}", cause);
+    }
 }
 
 #[cfg(unix)]

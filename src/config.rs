@@ -1,6 +1,27 @@
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("could not determine home directory")]
+    HomeDirUnavailable,
+    #[error("failed to read {}", .path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse {}", .path.display())]
+    Deserialize {
+        path: PathBuf,
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+}
+
+pub type Result<T> = std::result::Result<T, ConfigError>;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
@@ -8,46 +29,49 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn editor_root(&self) -> PathBuf {
-        self.editor_root.clone().unwrap_or_else(platform_default)
+    pub fn editor_root(&self) -> Result<PathBuf> {
+        match &self.editor_root {
+            Some(p) => Ok(p.clone()),
+            None => platform_default(),
+        }
     }
 }
 
-pub fn load() -> Config {
-    let path = config_path();
+pub fn load() -> Result<Config> {
+    let path = config_path()?;
     match std::fs::read_to_string(&path) {
-        Ok(s) => toml::from_str(&s)
-            .unwrap_or_else(|e| crate::fatal(format!("{}: {}", path.display(), e))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
-        Err(e) => crate::fatal(format!("{}: {}", path.display(), e)),
+        Ok(s) => toml::from_str(&s).map_err(|e| ConfigError::Deserialize {
+            path,
+            source: Box::new(e),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+        Err(source) => Err(ConfigError::Read { path, source }),
     }
 }
 
-pub fn urun_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| crate::fatal("could not determine home directory"))
-        .join(".local")
-        .join("state")
-        .join("urun")
+pub fn urun_dir() -> Result<PathBuf> {
+    Ok(dirs::config_local_dir()
+        .ok_or(ConfigError::HomeDirUnavailable)?
+        .join("urun"))
 }
 
-fn config_path() -> PathBuf {
-    urun_dir().join("config.toml")
+fn config_path() -> Result<PathBuf> {
+    Ok(urun_dir()?.join("config.toml"))
 }
 
-fn platform_default() -> PathBuf {
+fn platform_default() -> Result<PathBuf> {
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\Program Files\Unity\Hub\Editor")
+        Ok(PathBuf::from(r"C:\Program Files\Unity\Hub\Editor"))
     }
     #[cfg(target_os = "macos")]
     {
-        PathBuf::from("/Applications/Unity/Hub/Editor")
+        Ok(PathBuf::from("/Applications/Unity/Hub/Editor"))
     }
     #[cfg(target_os = "linux")]
     {
-        dirs::home_dir()
-            .unwrap_or_else(|| crate::fatal("could not determine home directory"))
-            .join("Unity/Hub/Editor")
+        Ok(dirs::home_dir()
+            .ok_or(ConfigError::HomeDirUnavailable)?
+            .join("Unity/Hub/Editor"))
     }
 }
