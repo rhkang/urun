@@ -1,6 +1,6 @@
 [package]
 name = "urun"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "CLI shim that picks the right Unity editor for each project"
 license = "MIT"
