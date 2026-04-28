@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -23,19 +23,33 @@ pub fn running() -> Vec<RunningUnity> {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
 
-    let unity_pids: Vec<u32> = sys
+    let unity_procs: Vec<(u32, Option<u32>)> = sys
         .processes()
         .iter()
         .filter(|(_, p)| is_unity(&p.name().to_string_lossy()))
-        .map(|(pid, _)| pid.as_u32())
+        .map(|(pid, p)| (pid.as_u32(), p.parent().map(|pp| pp.as_u32())))
         .collect();
 
-    if unity_pids.is_empty() {
+    if unity_procs.is_empty() {
         return Vec::new();
     }
 
-    let cmdlines = read_cmdlines(&unity_pids);
-    let mut out: Vec<RunningUnity> = unity_pids
+    let unity_pids: HashSet<u32> = unity_procs.iter().map(|(pid, _)| *pid).collect();
+
+    // Skip Unity's own subprocesses (e.g. Asset Import Worker) — only show
+    // top-level editors. Killing the parent terminates its workers.
+    let top_pids: Vec<u32> = unity_procs
+        .iter()
+        .filter(|(_, ppid)| ppid.is_none_or(|pp| !unity_pids.contains(&pp)))
+        .map(|(pid, _)| *pid)
+        .collect();
+
+    if top_pids.is_empty() {
+        return Vec::new();
+    }
+
+    let cmdlines = read_cmdlines(&top_pids);
+    let mut out: Vec<RunningUnity> = top_pids
         .into_iter()
         .map(|pid| {
             let project = cmdlines.get(&pid).and_then(|args| extract_project_path(args));
